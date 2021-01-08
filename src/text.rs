@@ -628,19 +628,19 @@ pub(crate) fn render_atlas<T: Renderer>(
     canvas.set_render_target(initial_render_target);
 
     // debug draw
-    // {
-    //     canvas.save();
-    //     canvas.reset();
+    {
+         canvas.save();
+         canvas.reset();
 
-    //     let image_id = canvas.text_renderer_context.textures[0].image_id;
+         let image_id = canvas.text_context.textures[0].image_id;
 
-    //     let mut path = Path::new();
-    //     path.rect(20.5, 20.5, 512.0, 512.0);
-    //     canvas.fill_path(&mut path, Paint::image(image_id, 20.5, 20.5, 512.0, 512.0, 0.0, 1.0));
-    //     canvas.stroke_path(&mut path, Paint::color(Color::black()));
+         let mut path = Path::new();
+         path.rect(20.5, 20.5, 512.0, 512.0);
+         canvas.fill_path(&mut path, Paint::image(image_id, 20.5, 20.5, 512.0, 512.0, 0.0, 1.0));
+         canvas.stroke_path(&mut path, Paint::color(Color::black()));
 
-    //     canvas.restore();
-    // }
+         canvas.restore();
+     }
 
     Ok(cmd_map.drain().map(|(_, cmd)| cmd).collect())
 }
@@ -662,7 +662,7 @@ fn render_glyph<T: Renderer>(
     let width = glyph.width.ceil() as u32 + line_width.ceil() as u32 + padding * 2;
     let height = glyph.height.ceil() as u32 + line_width.ceil() as u32 + padding * 2;
 
-    let (dst_index, dst_image_id, (dst_x, dst_y)) = find_texture_or_alloc(
+    let (dst_index, dst_image_id, (dst_x, dst_y), is_new_texture) = find_texture_or_alloc(
         &mut canvas.text_context.textures,
         &mut canvas.images,
         &mut canvas.renderer,
@@ -696,6 +696,12 @@ fn render_glyph<T: Renderer>(
     canvas.translate(x, y);
 
     canvas.set_render_target(RenderTarget::Image(dst_image_id));
+    if is_new_texture {
+        canvas.clear_rect(
+            0, 0, TEXTURE_SIZE as u32, TEXTURE_SIZE as u32,
+            Color::rgb(255, 0, 0),
+        );
+    }
     canvas.clear_rect(
         dst_x as u32,
         TEXTURE_SIZE as u32 - dst_y as u32 - height as u32,
@@ -769,13 +775,13 @@ fn find_texture_or_alloc<T: Renderer>(
     renderer: &mut T,
     width: usize,
     height: usize,
-) -> Result<(usize, ImageId, (usize, usize)), ErrorKind> {
+) -> Result<(usize, ImageId, (usize, usize), bool), ErrorKind> {
     // Find a free location in one of the the atlases
     let mut texture_search_result = textures.iter_mut().enumerate().find_map(|(index, texture)| {
         texture
             .atlas
             .add_rect(width, height)
-            .map(|loc| (index, texture.image_id, loc))
+            .map(|loc| (index, texture.image_id, loc, false))
     });
 
     if texture_search_result.is_none() {
@@ -792,7 +798,7 @@ fn find_texture_or_alloc<T: Renderer>(
         textures.push(FontTexture { atlas, image_id });
 
         let index = textures.len() - 1;
-        texture_search_result = Some((index, image_id, loc));
+        texture_search_result = Some((index, image_id, loc, true));
     }
 
     texture_search_result.ok_or(ErrorKind::UnknownError)
